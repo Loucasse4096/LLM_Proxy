@@ -70,6 +70,14 @@ page DashboardPage {
   component: import { DashboardPage } from "@src/monitoring/DashboardPage.tsx"
 }
 
+// #region Chat
+route ChatRoute { path: "/chat", to: ChatPage }
+page ChatPage {
+  authRequired: true,
+  component: import { ChatPage } from "@src/chat/ChatPage.tsx"
+}
+// #endregion Chat
+
 query getLogs {
   fn: import { getLogs } from "@src/monitoring/queries",
   entities: [LogEntry]

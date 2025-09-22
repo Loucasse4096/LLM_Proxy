@@ -19,6 +19,9 @@ export function Header() {
               <Link to="/" className="text-neutral-700 hover:text-black">Dashboard</Link>
             </li>
             <li>
+              <Link to="/chat" className="text-neutral-700 hover:text-black">Chat</Link>
+            </li>
+            <li>
               <Link to="/settings" className="text-neutral-700 hover:text-black">Settings</Link>
             </li>
             {user ? (

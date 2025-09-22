@@ -20,28 +20,32 @@ export const proxyPrompt = async (
   const encPrompt = encryptAesGcm(args.prompt, encKey)
 
   let responseText: string | undefined
+  let analysisText: string | undefined
   let responseEnc: { ciphertext: string; iv: string; authTag: string } | undefined
   let pt: number | undefined, ct: number | undefined, tt: number | undefined
 
-  if (decision !== 'BLOCK') {
-    const maskedPrompt = decision === 'MASK' ? '[MASKED] ' + args.prompt.slice(0, 100) : args.prompt
-    console.log(`[proxyAction] userId=${context.user.id} fetching ProviderCredential…`)
+  // Récupération éventuelle de la clé provider (utile aussi pour l'analyse côté BLOCK)
+  let openaiKey: string | undefined
+  let chosenModel = args.model || 'gpt-4o-mini'
+  try {
     const cred = await context.entities.ProviderCredential.findFirst({
       where: { provider: 'openai', userId: context.user.id },
     })
-    if (!cred) throw new HttpError(400, 'No OpenAI key configured for user')
-    const keyBuf = Buffer.from(cred.keyCiphertext, 'base64') // on ne déchiffre pas, on utilise en clair mémoire? Non: il faut déchiffrer
-    // Déchiffrement (utilise la même LOG_ENCRYPTION_KEY)
-    const key = (()=>{
+    if (cred) {
       const iv = Buffer.from(cred.keyIv, 'base64')
       const authTag = Buffer.from(cred.keyAuthTag, 'base64')
+      const ciphertext = Buffer.from(cred.keyCiphertext, 'base64')
       const decipher = crypto.createDecipheriv('aes-256-gcm', Buffer.from(encKey, 'base64'), iv)
       decipher.setAuthTag(authTag)
-      const plain = Buffer.concat([decipher.update(keyBuf), decipher.final()]).toString('utf8')
-      return plain
-    })()
-    const openaiKey = key
-    const chosenModel = args.model || 'gpt-4o-mini'
+      openaiKey = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')
+    }
+  } catch (e: any) {
+    console.warn(`[proxyAction] Provider key decrypt failed: ${e?.message}`)
+  }
+
+  if (decision !== 'BLOCK') {
+    const maskedPrompt = decision === 'MASK' ? '[MASKED] ' + args.prompt.slice(0, 100) : args.prompt
+    if (!openaiKey) throw new HttpError(400, 'No OpenAI key configured for user')
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -57,6 +61,34 @@ export const proxyPrompt = async (
     ct = data.usage?.completion_tokens
     tt = data.usage?.total_tokens
     responseEnc = encryptAesGcm(responseText || '', encKey)
+  } else {
+    // Génère une explication sans divulguer le prompt d'origine.
+    const safeAnalysisPrompt = `Explique de manière concise et empathique en français pourquoi une requête utilisateur a été bloquée selon ces risques: ${JSON.stringify(riskTypes)} et un score ${score}. Donne des conseils pour reformuler sans données sensibles ni jailbreak. N'inclus aucune partie de la requête.`
+    if (openaiKey) {
+      try {
+        const r = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openaiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ model: chosenModel, messages: [
+            { role: 'system', content: 'Tu es un assistant de conformité qui explique les politiques de sécurité.' },
+            { role: 'user', content: safeAnalysisPrompt }
+          ] })
+        })
+        if (r.ok) {
+          const data = await r.json()
+          analysisText = (data.choices?.[0]?.message?.content ?? '') + ''
+        }
+      } catch (e: any) {
+        console.warn(`[proxyAction] Analysis generation failed: ${e?.message}`)
+      }
+    }
+    if (!analysisText) {
+      analysisText = `Votre requête a été bloquée pour des raisons de sécurité (${riskTypes.join(', ') || 'risques'}). Évitez d'inclure des données sensibles ou des tentatives de jailbreak, et reformulez votre question de manière générale.`
+    }
+    responseEnc = encryptAesGcm(analysisText, encKey)
   }
 
   const log = await context.entities.LogEntry.create({
@@ -81,7 +113,7 @@ export const proxyPrompt = async (
     }
   })
 
-  return { decision, response: decision === 'BLOCK' ? null : responseText ?? null, logId: log.id }
+  return { decision, riskTypes, riskScore: score, response: decision === 'BLOCK' ? null : responseText ?? null, analysis: decision === 'BLOCK' ? analysisText ?? null : null, logId: log.id }
 }
 
 
