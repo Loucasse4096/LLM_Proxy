@@ -1,0 +1,145 @@
+app AIProxy {
+  wasp: {
+    version: "^0.18.0"
+  },
+  title: "AIProxy",
+  head: [
+    "<link rel='icon' href='/favicon.ico' />",
+  ],
+  auth: {
+    userEntity: User,
+    methods: {
+      email: {
+        fromField: {
+          name: "Basic App",
+          email: "hello@example.com"
+        },
+        userSignupFields: import { userSignupFields } from "@src/auth/email/userSignupFields",
+        emailVerification: {
+          clientRoute: EmailVerificationRoute,
+        },
+        passwordReset: {
+          clientRoute: PasswordResetRoute,
+        }
+      },
+    },
+    onAuthSucceededRedirectTo: "/",
+    onAuthFailedRedirectTo: "/login",
+  },
+  emailSender: {
+    provider: Dummy,
+  },
+  client: {
+    rootComponent: import { App } from "@src/App.tsx",
+  }
+}
+
+// #region Auth
+route LoginRoute { path: "/login", to: LoginPage }
+page LoginPage {
+  component: import { LoginPage } from "@src/auth/email/LoginPage.tsx"
+}
+
+route SignupRoute { path: "/signup", to: SignupPage }
+page SignupPage {
+  component: import { SignupPage } from "@src/auth/email/SignupPage.tsx"
+}
+
+route RequestPasswordResetRoute { path: "/request-password-reset", to: RequestPasswordResetPage }
+page RequestPasswordResetPage {
+  component: import { RequestPasswordResetPage } from "@src/auth/email/RequestPasswordResetPage.tsx",
+}
+
+route PasswordResetRoute { path: "/password-reset", to: PasswordResetPage }
+page PasswordResetPage {
+  component: import { PasswordResetPage } from "@src/auth/email/PasswordResetPage.tsx",
+}
+
+route EmailVerificationRoute { path: "/email-verification", to: EmailVerificationPage }
+page EmailVerificationPage {
+  component: import { EmailVerificationPage } from "@src/auth/email/EmailVerificationPage.tsx",
+}
+// #endregion Auth
+
+// (Tasks/Tags supprimés)
+
+// #region Dashboard
+route DashboardRoute { path: "/", to: DashboardPage }
+page DashboardPage {
+  authRequired: true,
+  component: import { DashboardPage } from "@src/monitoring/DashboardPage.tsx"
+}
+
+query getLogs {
+  fn: import { getLogs } from "@src/monitoring/queries",
+  entities: [LogEntry]
+}
+
+query getStats {
+  fn: import { getStats } from "@src/monitoring/queries",
+  entities: [LogEntry]
+}
+action addBlacklistTerm {
+  fn: import { addBlacklistTerm } from "@src/monitoring/queries",
+  entities: [BlacklistTerm]
+}
+action removeBlacklistTerm {
+  fn: import { removeBlacklistTerm } from "@src/monitoring/queries",
+  entities: [BlacklistTerm]
+}
+action markFalsePositive {
+  fn: import { markFalsePositive } from "@src/monitoring/queries",
+  entities: [LogEntry]
+}
+// #endregion Dashboard
+
+// #region Proxy Action
+action proxyPrompt {
+  fn: import { proxyPrompt } from "@src/server/proxyPrompt",
+  entities: [ApiClient, LogEntry, BlacklistTerm, ProviderCredential]
+}
+// #endregion Proxy Action
+
+// #region HTTP API
+api proxyHttp {
+  fn: import { proxyHttp } from "@src/server/proxyHttp",
+  httpRoute: (POST, "/api/proxy"),
+  entities: [ApiToken, ProviderCredential, LogEntry],
+  auth: false
+}
+// #endregion HTTP API
+
+// #region Settings
+route SettingsRoute { path: "/settings", to: SettingsPage }
+page SettingsPage {
+  authRequired: true,
+  component: import { SettingsPage } from "@src/settings/SettingsPage.tsx"
+}
+
+query getProviderCreds {
+  fn: import { getProviderCreds } from "@src/settings/queries",
+  entities: [ProviderCredential]
+}
+
+action upsertProviderCred {
+  fn: import { upsertProviderCred } from "@src/settings/actions",
+  entities: [ProviderCredential]
+}
+
+action deleteProviderCred {
+  fn: import { deleteProviderCred } from "@src/settings/actions",
+  entities: [ProviderCredential]
+}
+query listApiTokens {
+  fn: import { listApiTokens } from "@src/tokens/queries",
+  entities: [ApiToken]
+}
+action createApiToken {
+  fn: import { createApiToken } from "@src/tokens/actions",
+  entities: [ApiToken]
+}
+action revokeApiToken {
+  fn: import { revokeApiToken } from "@src/tokens/actions",
+  entities: [ApiToken]
+}
+// #endregion Settings
